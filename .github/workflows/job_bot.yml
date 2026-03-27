@@ -2,20 +2,20 @@ name: Omni Govt Job Bot
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Runs every 3 hours (IST roughly 3:30, 6:30, etc.)
-  workflow_dispatch:      # Allows you to click 'Run' manually for testing
+    - cron: '0 */3 * * *' # Every 3 hours
+  workflow_dispatch:
 
 jobs:
-  run-and-sync:
+  run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # Crucial: Allows bot to save seen_jobs.txt
+      contents: write # REQUIRED to save seen_jobs.txt
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
@@ -23,23 +23,26 @@ jobs:
       - name: Install Dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Run Job Scraper
+      - name: Run Scraper
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python fetch_jobs.py
 
-      - name: Save Search History
+      - name: Sync Database to Repo
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          touch seen_jobs.txt # Ensures file exists
+          # Ensure file exists
+          touch seen_jobs.txt 
+          
           git add seen_jobs.txt
           
+          # Only commit if the file actually changed
           if git diff --staged --quiet; then
-            echo "No changes to save."
+            echo "No new jobs to sync."
           else
-            git commit -m "Update seen jobs database [skip ci]"
+            git commit -m "Update job database [skip ci]"
             git push
           fi
