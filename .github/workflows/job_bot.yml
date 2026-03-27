@@ -3,13 +3,13 @@ name: Govt Job Bot
 on:
   schedule:
     - cron: '0 */6 * * *' # Runs every 6 hours
-  workflow_dispatch:      # Allows you to run it manually from the Actions tab
+  workflow_dispatch:      # Allows manual trigger
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # Required to push the seen_jobs.txt update back to the repo
+      contents: write
 
     steps:
       - name: Checkout Code
@@ -21,7 +21,7 @@ jobs:
           python-version: '3.9'
 
       - name: Install Dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
       - name: Run Bot
         env:
@@ -31,19 +31,15 @@ jobs:
 
       - name: Commit and Push changes
         run: |
-          # 1. Configure Git
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # 2. Ensure the file exists so 'git add' doesn't fail
+          # Ensure file exists so git add doesn't fail
           touch seen_jobs.txt 
-          
-          # 3. Stage the file
           git add seen_jobs.txt
           
-          # 4. Only commit and push if the file was actually changed
           if git diff --staged --quiet; then
-            echo "No new jobs to save. Skipping commit."
+            echo "No new jobs found. Skipping commit."
           else
             git commit -m "Update seen jobs list [skip ci]"
             git push
