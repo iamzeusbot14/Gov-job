@@ -1,48 +1,50 @@
-name: Omni Govt Job Bot
+name: Govt Job Bot
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Every 3 hours
+    - cron: '0 */3 * * *'
   workflow_dispatch:
 
 jobs:
-  run-bot:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # REQUIRED to save seen_jobs.txt
+      contents: write # ALLOWS PUSHING TO REPO
 
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Fetches full history for better git stability
 
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      - name: Install Dependencies
+      - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Run Scraper
+      - name: Run Bot
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python fetch_jobs.py
 
-      - name: Sync Database to Repo
+      - name: Push Database Changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           
-          # Ensure file exists
-          touch seen_jobs.txt 
-          
+          # Force the file to exist and add it
+          touch seen_jobs.txt
           git add seen_jobs.txt
           
-          # Only commit if the file actually changed
-          if git diff --staged --quiet; then
-            echo "No new jobs to sync."
+          # Check if there are changes to commit
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git commit -m "Update job history [skip ci]"
+            git push origin HEAD
+            echo "✅ Changes pushed to GitHub."
           else
-            git commit -m "Update job database [skip ci]"
-            git push
+            echo "ℹ️ No new jobs found to save."
           fi
