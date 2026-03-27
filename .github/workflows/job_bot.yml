@@ -2,8 +2,8 @@ name: Omni Govt Job Bot
 
 on:
   schedule:
-    - cron: '0 */3 * * *' # Runs every 3 hours
-  workflow_dispatch:      # Allows manual testing
+    - cron: '0 */3 * * *'
+  workflow_dispatch:
 
 jobs:
   run-bot:
@@ -16,6 +16,12 @@ jobs:
         uses: actions/checkout@v4
         with:
           persist-credentials: true
+          fetch-depth: 0 
+
+      - name: Setup Git Identity
+        run: |
+          git config --local user.email "zeusbot@atomicmail.io"
+          git config --local user.name "Z E U S B O T"
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -25,27 +31,25 @@ jobs:
       - name: Install Dependencies
         run: pip install requests beautifulsoup4
 
+      - name: Sync Latest From Repo
+        run: |
+          # Pull first to ensure we have the most recent seen_jobs.txt
+          git pull origin main --rebase || echo "No remote changes to pull"
+
       - name: Run Scraper
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python fetch_jobs.py
 
-      - name: Sync Database to Repo
+      - name: Push Database Changes
         run: |
-          # --- UPDATED BOT IDENTITY ---
-          git config --local user.email "zeusbot@atomicmail.io"
-          git config --local user.name "Z E U S B O T"
-          
-          # Pull latest to prevent conflicts
-          git pull origin main --rebase
-          
-          # Ensure file is tracked
+          # Add the file again after the script modified it
           touch seen_jobs.txt
           git add seen_jobs.txt
           
           if git diff --staged --quiet; then
-            echo "No new jobs to save."
+            echo "No new jobs found. Nothing to commit."
           else
             git commit -m "Update job database [skip ci]"
             git push origin main
