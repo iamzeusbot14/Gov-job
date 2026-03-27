@@ -33,8 +33,8 @@ jobs:
 
       - name: Push Database Changes
         run: |
-          git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
+          git config --local user.email "zeusbot@atomicmail.io"
+          git config --local user.name "Z E U S B O T"
           
           # Force the file to exist and add it
           touch seen_jobs.txt
