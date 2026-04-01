@@ -3,6 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 import hashlib
 import time
+import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "seen_jobs.txt")
@@ -19,21 +20,29 @@ def save_seen_jobs(job_ids):
         for job_id in job_ids:
             f.write(f"{job_id}\n")
 
+def escape_markdown(text):
+    """Helper to escape special characters for Telegram MarkdownV2"""
+    # Characters that need escaping in MarkdownV2
+    escape_chars = r'_*[]()~`>#+-=|{}.!'
+    return re.sub(f'([{re.escape(escape_chars)}])', r'\\\1', text)
+
 def send_telegram(message):
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    requests.post(url, data={
-        "chat_id": chat_id, 
-        "text": message, 
-        "parse_mode": "Markdown", 
+    
+    payload = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "MarkdownV2",
         "disable_web_page_preview": "true"
-    })
+    }
+    requests.post(url, data=payload)
 
 def scrape_jobs():
     seen_jobs = load_seen_jobs()
     new_job_ids = []
-    
+
     sources = [
         {"name": "Sarkari Result", "url": "https://www.sarkariresult.com/latestjob/", "selector": ".post ul li a"},
         {"name": "Free Job Alert", "url": "https://www.freejobalert.com/latest-notifications/", "selector": "table.listing tr td a"},
@@ -57,7 +66,14 @@ def scrape_jobs():
                 job_id = hashlib.md5(href.encode()).hexdigest()
 
                 if job_id not in seen_jobs:
-                    msg = f"🆕 *[{src['name']}] Update*\n\n🔹 *{title}*\n🔗 [Link]({href})"
+                    # Minimalist formatting: Title is the clickable link
+                    # Source name is bold and small.
+                    clean_title = escape_markdown(title)
+                    source_name = escape_markdown(src['name'])
+                    
+                    # Minimal UI Format: "● [Title](URL) | [Source]"
+                    msg = f"• [{clean_title}]({href}) \| *{source_name}*"
+                    
                     send_telegram(msg)
                     new_job_ids.append(job_id)
                     seen_jobs.add(job_id)
