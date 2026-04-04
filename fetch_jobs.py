@@ -4,20 +4,25 @@ from bs4 import BeautifulSoup
 import hashlib
 import time
 
-# 1. Database Management
-DB_FILE = "seen_jobs.txt"
+# storage configuration
+db_file = "seen_jobs.txt"
 
 def load_seen_jobs():
-    if os.path.exists(DB_FILE):
-        with open(DB_FILE, "r") as f:
-            return set(line.strip() for line in f if line.strip())
+    """loads all historical job hashes into a set for o(1) lookup."""
+    if os.path.exists(db_file):
+        with open(db_file, "r") as f:
+            # filters for valid 32-character md5 hashes
+            return set(line.strip() for line in f if len(line.strip()) == 32)
     return set()
 
-def save_seen_jobs(job_ids):
-    if not job_ids: return
-    with open(DB_FILE, "a") as f:
-        for job_id in job_ids:
-            f.write(f"{job_id}\n")
+def save_seen_jobs(updated_set):
+    """saves the growing database, sorted alphabetically for clean git history."""
+    if not updated_set:
+        return
+    # sorting ensures that the git diff only shows exactly what was added
+    sorted_hashes = sorted(list(updated_set))
+    with open(db_file, "w") as f:
+        f.write("\n".join(sorted_hashes) + "\n")
 
 def send_telegram(message):
     token = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -26,57 +31,76 @@ def send_telegram(message):
     payload = {
         "chat_id": chat_id,
         "text": message,
-        "parse_mode": "Markdown",
+        "parse_mode": "markdown",
         "disable_web_page_preview": True
     }
     try:
-        requests.post(url, data=payload, timeout=10)
+        requests.post(url, data=payload, timeout=15)
     except Exception as e:
-        print(f"Failed to send to Telegram: {e}")
+        print(f"telegram error: {e}")
 
-def scrape_jobs():
-    seen_jobs = load_seen_jobs()
-    new_jobs_list = []
-    new_job_ids = []
-
-    # Targeted URL
-    target_url = "https://sarkariresult.com.cm/category/latest-job/"
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-
+def scrape_website():
+    """fetches from sarkari result website"""
+    jobs = []
+    url = "https://sarkariresult.com.cm/category/latest-job/"
+    headers = {'user-agent': 'mozilla/5.0'}
     try:
-        res = requests.get(target_url, headers=headers, timeout=20)
+        res = requests.get(url, headers=headers, timeout=20)
         soup = BeautifulSoup(res.text, 'html.parser')
-        
-        # Selectors for sarkariresult.com.cm links
         links = soup.select('h2.entry-title a') or soup.select('.post-content ul li a')
-
-        for link in links[:20]: # Check top 20 latest
-            title = link.get_text(strip=True)
+        for link in links[:15]:
+            title = link.get_text(strip=True).lower()
             href = link.get('href', '')
-            
-            if not href or len(title) < 10: continue
-            
-            # Use URL hash as unique ID
-            job_id = hashlib.md5(href.encode()).hexdigest()
+            if href and len(title) > 8:
+                jobs.append({"title": title, "url": href})
+    except: pass
+    return jobs
 
-            if job_id not in seen_jobs:
-                new_jobs_list.append({"title": title, "url": href})
-                new_job_ids.append(job_id)
-                seen_jobs.add(job_id)
+def scrape_telegram():
+    """fetches from sarkariexam_info channel via web preview"""
+    jobs = []
+    url = "https://t.me/s/SarkariExam_info"
+    try:
+        res = requests.get(url, timeout=20)
+        soup = BeautifulSoup(res.text, 'html.parser')
+        messages = soup.find_all("div", class_="tgme_widget_message_text")
+        for msg in messages[-10:]:
+            link_tag = msg.find("a")
+            href = link_tag.get("href") if link_tag else None
+            text = msg.get_text(separator=" ", strip=True).lower()
+            # clean title extraction
+            title = text.split('।')[0].split('\n')[0][:70]
+            if href and len(title) > 5:
+                jobs.append({"title": title, "url": href})
+    except: pass
+    return jobs
 
-    except Exception as e:
-        print(f"Scraper encountered an error: {e}")
+def main():
+    # 1. load historical memory
+    history_set = load_seen_jobs()
+    
+    # 2. gather data from all sources
+    raw_found = scrape_website() + scrape_telegram()
+    
+    new_jobs_to_report = []
+    
+    # 3. cross-source deduplication logic
+    for job in raw_found:
+        # unique fingerprint based on the url
+        job_hash = hashlib.md5(job['url'].encode()).hexdigest()
+        
+        # only proceed if this link has never been seen before across any source
+        if job_hash not in history_set:
+            new_jobs_to_report.append(job)
+            history_set.add(job_hash)
 
-    # 2. Professional Report UI Logic
-    if new_jobs_list:
-        report = f"🚀 **New Updates ({len(new_jobs_list)})**\n"
+    # 4. output report
+    if new_jobs_to_report:
+        report = f"🚀 new updates ({len(new_jobs_to_report)})\n"
         report += "━━━━━━━━━━━━━━━━━━\n\n"
         
-        for job in new_jobs_list:
-            # Clean "Clickable Title" format
+        for job in new_jobs_to_report:
             line = f"• [{job['title']}]({job['url']})\n\n"
-            
-            # Split if message exceeds Telegram limit
             if len(report) + len(line) > 4000:
                 send_telegram(report)
                 report = ""
@@ -85,10 +109,10 @@ def scrape_jobs():
         if report:
             send_telegram(report)
         
-        # Only save to history if we found and processed new jobs
-        save_seen_jobs(new_job_ids)
+        # 5. sync the updated memory back to the file
+        save_seen_jobs(history_set)
     else:
-        print("No new jobs to report.")
+        print("logs: all jobs are already in history.")
 
 if __name__ == "__main__":
-    scrape_jobs()
+    main()
